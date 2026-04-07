@@ -1,0 +1,1 @@
+cmake_minimum_required(VERSION 3.10)\nproject(Keelcore)\n\nset(CMAKE_CXX_STANDARD 11)\nset(CMAKE_CXX_STANDARD_REQUIRED TRUE)\n\ninclude_directories(include)\n\nadd_executable(Keelcore src/keelcore.cpp)\n\n# Include GoogleTest\nfind_package(GTest REQUIRED)\ntarget_link_libraries(Keelcore GTest::GTest GTest::GMock)\n\n# Include tests\nadd_subdirectory(tests)
