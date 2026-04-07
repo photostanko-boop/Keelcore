@@ -1,0 +1,29 @@
+# CMake
+build/
+cmake_build_debug/
+cmake_build_release/
+CMakeFiles/
+*.cmake
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.user
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+vcpkg_installed/
+node_modules/
