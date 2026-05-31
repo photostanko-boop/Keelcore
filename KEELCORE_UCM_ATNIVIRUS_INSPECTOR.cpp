@@ -2261,10 +2261,43 @@ private:
     HttpRequest readRequest(socket_t client, const std::string& clientIp) {
         HttpRequest req;
         req.clientIp = clientIp;
-        char buf[4096];
+        // FIX-BUFFER-2: read request headers and body up to 65536 bytes.
         std::string raw;
-        int n = recv(client, buf, sizeof(buf) - 1, 0);
-        if (n > 0) raw.assign(buf, buf + n);
+        raw.reserve(65536);
+        char buf[4096];
+        size_t totalRead = 0;
+        size_t expectedTotal = 0;
+
+        while (totalRead < 65536) {
+            size_t remaining = 65536 - totalRead;
+            int want = (int)std::min<size_t>(sizeof(buf), remaining);
+            int n = recv(client, buf, want, 0);
+            if (n <= 0) break;
+
+            raw.append(buf, buf + n);
+            totalRead += (size_t)n;
+
+            size_t headerEnd = raw.find("\r\n\r\n");
+            if (headerEnd != std::string::npos) {
+                if (expectedTotal == 0) {
+                    std::string headersOnly = raw.substr(0, headerEnd);
+                    std::string contentLength = headerValue(headersOnly, "Content-Length");
+                    if (!contentLength.empty()) {
+                        try {
+                            size_t bodyLen = (size_t)std::stoull(contentLength);
+                            expectedTotal = std::min<size_t>(65536, headerEnd + 4 + bodyLen);
+                        }
+                        catch (...) {
+                            expectedTotal = headerEnd + 4;
+                        }
+                    }
+                    else {
+                        expectedTotal = headerEnd + 4;
+                    }
+                }
+                if (raw.size() >= expectedTotal) break;
+            }
+        }
         req.raw = raw;
         size_t bodyPos = raw.find("\r\n\r\n");
         if (bodyPos != std::string::npos) req.body = raw.substr(bodyPos + 4);
@@ -2674,6 +2707,33 @@ private:
             return;
         }
 
+        // FIX-BUFFER-1: check quarantine limits BEFORE writing.
+        {
+            std::error_code ec;
+            int qcount = 0;
+            for (auto& e : fs::directory_iterator(paths.quarantine, ec)) {
+                if (ec) break;
+                if (e.is_regular_file(ec)) ++qcount;
+            }
+
+            uintmax_t qbytes = directoryBytes(paths.quarantine);
+
+            if (qcount >= 64) {
+                appendLog(paths, "QUARANTINE_FULL_COUNT url=" + urlEncode(url));
+                notifyTray(GateVerdict::HOLD, "QUARANTINE_FULL_COUNT", parseUrl(url).host);
+                sendResponse(client, blockPage("QUARANTINE_FULL_COUNT"),
+                    "text/html; charset=utf-8", 503, "Service Unavailable");
+                return;
+            }
+            if (qbytes >= 512ull * 1024ull * 1024ull) {
+                appendLog(paths, "QUARANTINE_FULL_SIZE url=" + urlEncode(url));
+                notifyTray(GateVerdict::HOLD, "QUARANTINE_FULL_SIZE", parseUrl(url).host);
+                sendResponse(client, blockPage("QUARANTINE_FULL_SIZE"),
+                    "text/html; charset=utf-8", 503, "Service Unavailable");
+                return;
+            }
+        }
+
         {
             std::ofstream f(qfile, std::ios::binary);
             f << fr.body;
@@ -2964,5 +3024,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE, _In_ PWSTR, _I
     return runTrayApp(hInstance);
 }
 #endif
+
 
 
